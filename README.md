@@ -19,24 +19,29 @@ docker compose up --build
 
 Los contenedores acceden a Ollama vía `host.docker.internal:11434`.
 
-## Ingesta de ejemplo
+## Repositorios en tu máquina (desarrollo)
 
-1. Añade un bind mount para que el contenedor vea el repo de prueba, por ejemplo en un `docker-compose.override.yml` local:
+Docker monta una carpeta del host en `/data/repos` dentro de **api-core** y **ai-ingestor**:
 
-```yaml
-services:
-  ai-ingestor:
-    volumes:
-      - ./samples/demo-repo:/data/repos/demo:ro
+- Por defecto: `./repos` en la raíz del monorepo (creada vacía; puedes clonar ahí).
+- Otra ruta: variable `NEXUS_HOST_REPOS` en `.env` (ruta absoluta o relativa al `docker compose`).
+
+Ejemplo: clonar un proyecto para indexarlo como `acme`:
+
+```bash
+mkdir -p repos
+git clone https://github.com/org/acme.git repos/acme
 ```
 
-2. Con el stack arriba, ejecuta la ingesta:
+Ingesta (`repository_id` libre, `root_path` = ruta **dentro del contenedor**):
 
 ```bash
 curl -s -X POST http://localhost:8100/ingest \
   -H 'Content-Type: application/json' \
-  -d '{"repository_id":"demo","root_path":"/data/repos/demo"}'
+  -d '{"repository_id":"acme","root_path":"/data/repos/acme"}'
 ```
+
+Prueba rápida sin clone: `cp -R samples/demo-repo repos/demo` y usa `repository_id` `demo` con `root_path` `/data/repos/demo`.
 
 ## Nx
 

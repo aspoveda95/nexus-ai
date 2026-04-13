@@ -80,7 +80,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - repo_mounts:/data/repos:ro
+      # Clones en tu máquina → ./repos (o la ruta que pongas en NEXUS_HOST_REPOS) se ven como /data/repos
+      - ${NEXUS_HOST_REPOS:-./repos}:/data/repos:ro
 
   ai-ingestor:
     build:
@@ -104,13 +105,12 @@ services:
     ports:
       - "8100:8100"
     volumes:
-      - repo_mounts:/data/repos:ro
+      - ${NEXUS_HOST_REPOS:-./repos}:/data/repos:ro
 
 volumes:
   postgres_data:
   redis_data:
   chroma_data:
-  repo_mounts:
 
 networks:
   default:

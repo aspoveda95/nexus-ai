@@ -1,0 +1,30 @@
+{
+  "name": "web-portal",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/web-portal/src",
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/web-portal",
+        "command": "vite"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/web-portal",
+        "command": "vue-tsc --noEmit && vite build"
+      }
+    },
+    "preview": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/web-portal",
+        "command": "vite preview"
+      }
+    }
+  },
+  "tags": ["scope:frontend", "type:app"]
+}

@@ -23,6 +23,15 @@ class ChatCitationSerializer(serializers.Serializer):
     repository_id = serializers.CharField()
 
 
+class SourceChunkSerializer(serializers.Serializer):
+    """Fragmento RAG para el inspector de conocimiento."""
+
+    source_path = serializers.CharField()
+    repository_id = serializers.CharField()
+    language = serializers.CharField(allow_blank=True, required=False)
+    content = serializers.CharField()
+
+
 class ChatResponseSerializer(serializers.Serializer):
     """Respuesta JSON del orquestador."""
 
@@ -30,6 +39,7 @@ class ChatResponseSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=["local", "cloud"])
     repository_id = serializers.CharField()
     citations = ChatCitationSerializer(many=True)
+    source_chunks = SourceChunkSerializer(many=True)
 
 
 ModeLiteral = Literal["local", "cloud"]

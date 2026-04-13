@@ -1,0 +1,26 @@
+@import 'highlight.js/styles/github-dark.min.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 240 6% 6%;
+  --foreground: 240 5% 96%;
+  --border: 240 4% 16%;
+  --ring: 240 5% 64%;
+  --radius: 0.5rem;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* highlight.js overrides (github-dark inspired) */
+.hljs {
+  background: transparent !important;
+}

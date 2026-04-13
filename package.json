@@ -7,9 +7,33 @@
     "nx": "nx",
     "graph": "nx graph",
     "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "web": "vite --config apps/web-portal/vite.config.ts",
+    "web:build": "vue-tsc --noEmit -p apps/web-portal/tsconfig.app.json && vite build --config apps/web-portal/vite.config.ts"
+  },
+  "dependencies": {
+    "@vueuse/core": "^11.3.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dompurify": "^3.2.4",
+    "highlight.js": "^11.11.1",
+    "lucide-vue-next": "^0.468.0",
+    "markdown-it": "^14.1.0",
+    "pinia": "^2.3.1",
+    "pinia-plugin-persistedstate": "^3.2.3",
+    "radix-vue": "^1.9.17",
+    "tailwind-merge": "^2.6.0",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
-    "nx": "^22.6.5"
+    "@types/markdown-it": "^14.1.2",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "autoprefixer": "^10.4.20",
+    "nx": "^22.6.5",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6",
+    "vue-tsc": "^2.2.0"
   }
 }
