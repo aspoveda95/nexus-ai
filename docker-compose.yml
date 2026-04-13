@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexus-postgres
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus
+      POSTGRES_DB: nexus
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: nexus-chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/heartbeat', timeout=2)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+
+  api-core:
+    build:
+      context: .
+      dockerfile: apps/api-core/Dockerfile
+    container_name: nexus-api-core
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DJANGO_SETTINGS_MODULE: nexus_api.settings
+      DATABASE_URL: postgres://nexus:nexus@postgres:5432/nexus
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_HTTP_HOST: chroma
+      CHROMA_HTTP_PORT: "8000"
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_CHAT_MODEL: llama3
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      OPENAI_CHAT_MODEL: gpt-4o
+      PYTHONUNBUFFERED: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - repo_mounts:/data/repos:ro
+
+  ai-ingestor:
+    build:
+      context: .
+      dockerfile: apps/ai-ingestor/Dockerfile
+    container_name: nexus-ai-ingestor
+    environment:
+      CHROMA_HTTP_HOST: chroma
+      CHROMA_HTTP_PORT: "8000"
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      ALLOWED_REPO_ROOT: /data/repos
+      INGESTOR_HOST: 0.0.0.0
+      INGESTOR_PORT: "8100"
+      PYTHONUNBUFFERED: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      chroma:
+        condition: service_healthy
+    ports:
+      - "8100:8100"
+    volumes:
+      - repo_mounts:/data/repos:ro
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
+  repo_mounts:
+
+networks:
+  default:
+    name: nexus-ai
