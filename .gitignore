@@ -20,3 +20,9 @@ coverage
 htmlcov
 apps/**/staticfiles
 media
+
+# Artefactos locales de empaquetado para GitHub API
+.upload-bundle.json
+.upload-part*.json
+.upload-mini-*.json
+.upload-chunk-*.json
