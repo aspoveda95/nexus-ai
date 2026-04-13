@@ -14,6 +14,7 @@ class ChatRequestSerializer(serializers.Serializer):
     message = serializers.CharField()
     mode = serializers.ChoiceField(choices=["local", "cloud"])
     top_k = serializers.IntegerField(required=False, min_value=1, max_value=32, default=8)
+    conversation_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 class ChatCitationSerializer(serializers.Serializer):
@@ -38,6 +39,7 @@ class ChatResponseSerializer(serializers.Serializer):
     answer = serializers.CharField()
     mode = serializers.ChoiceField(choices=["local", "cloud"])
     repository_id = serializers.CharField()
+    conversation_id = serializers.UUIDField()
     citations = ChatCitationSerializer(many=True)
     source_chunks = SourceChunkSerializer(many=True)
 

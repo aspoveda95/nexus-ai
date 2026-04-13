@@ -5,8 +5,10 @@ function handleEvent(ev: StreamEvent, handlers: Parameters<typeof streamChat>[1]
   if (ev.type === 'meta') handlers.onMeta(ev)
   else if (ev.type === 'token') handlers.onToken(ev.text)
   else if (ev.type === 'done') handlers.onDone()
-  else if (ev.type === 'error')
-    handlers.onError(ev.detail + (ev.error ? `: ${ev.error}` : ''))
+  else if (ev.type === 'error') {
+    const msg = ev.detail + (ev.error ? `: ${ev.error}` : '')
+    handlers.onError(msg, ev.conversation_id)
+  }
 }
 
 export async function streamChat(
@@ -15,7 +17,7 @@ export async function streamChat(
     onMeta: (ev: Extract<StreamEvent, { type: 'meta' }>) => void
     onToken: (text: string) => void
     onDone: () => void
-    onError: (message: string) => void
+    onError: (message: string, conversationIdFromServer?: string) => void
   },
   signal?: AbortSignal,
 ): Promise<void> {

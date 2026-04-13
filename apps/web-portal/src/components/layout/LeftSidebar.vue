@@ -4,20 +4,32 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  MessageSquarePlus,
+  MessagesSquare,
   Plus,
   RefreshCw,
   Search,
 } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
 import ScrollArea from '@/components/ui/ScrollArea.vue'
 import Separator from '@/components/ui/Separator.vue'
 import { cn } from '@/lib/utils'
+import { useChatStore } from '@/stores/chat'
 import { useRepositoriesStore, type RepositoryItem } from '@/stores/repositories'
 
 const repos = useRepositoriesStore()
+const chat = useChatStore()
+
+watch(
+  () => repos.activeId,
+  (id) => {
+    void chat.fetchConversationThreads(id)
+  },
+  { immediate: true },
+)
 
 const addOpen = ref(false)
 const newRoot = ref('/data/repos/')
@@ -141,6 +153,26 @@ function rowClass(r: RepositoryItem) {
       : 'border-transparent bg-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-900/40 hover:text-zinc-200',
   )
 }
+
+function threadRowClass(threadId: string) {
+  return cn(
+    'flex w-full items-center gap-2 rounded-lg border px-2 py-2 text-left text-[12px] transition-colors',
+    chat.conversationId === threadId
+      ? 'border-violet-500/50 bg-violet-950/40 text-zinc-100'
+      : 'border-transparent bg-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-900/40 hover:text-zinc-200',
+  )
+}
+
+function threadLabel(t: { preview: string }) {
+  const p = t.preview.trim()
+  return p || 'Chat sin título'
+}
+
+async function openThread(threadId: string) {
+  const rid = repos.activeId
+  if (!rid || chat.isHydrating) return
+  await chat.hydrateFromBackend(rid, threadId)
+}
 </script>
 
 <template>
@@ -221,6 +253,49 @@ function rowClass(r: RepositoryItem) {
           <span class="min-w-0 flex-1 truncate font-medium">{{ r.label }}</span>
         </button>
       </div>
+
+      <template v-if="repos.activeId">
+        <Separator class="mx-1 my-3" />
+        <div class="mb-2 flex items-center justify-between gap-2 px-1">
+          <span class="text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+            Chats del repo
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-7 gap-1 px-2 text-[11px]"
+            title="Nuevo chat (el anterior sigue guardado)"
+            :disabled="chat.isSending || chat.isHydrating"
+            @click="chat.clearConversation()"
+          >
+            <MessageSquarePlus class="h-3.5 w-3.5" />
+            Nuevo
+          </Button>
+        </div>
+        <div v-if="chat.threadsLoading" class="px-2 py-2 text-[11px] text-zinc-500">
+          Cargando conversaciones…
+        </div>
+        <div
+          v-else-if="chat.conversationThreads.length === 0"
+          class="px-2 pb-2 text-[11px] leading-relaxed text-zinc-600"
+        >
+          Aún no hay hilos. Envía un mensaje o pulsa <span class="text-zinc-400">Nuevo</span> para
+          empezar; cada chat queda guardado y puedes volver a abrirlo aquí.
+        </div>
+        <div v-else class="space-y-1 pb-2">
+          <button
+            v-for="t in chat.conversationThreads"
+            :key="t.id"
+            type="button"
+            :class="threadRowClass(t.id)"
+            :disabled="chat.isHydrating"
+            @click="openThread(t.id)"
+          >
+            <MessagesSquare class="h-4 w-4 shrink-0 text-zinc-600" aria-hidden="true" />
+            <span class="min-w-0 flex-1 truncate text-left">{{ threadLabel(t) }}</span>
+          </button>
+        </div>
+      </template>
     </ScrollArea>
 
     <div v-if="addOpen" class="border-t border-zinc-800 p-3">

@@ -32,9 +32,11 @@ export function useSendMessage() {
           message: trimmed,
           mode: chat.mode,
           top_k: 8,
+          ...(chat.conversationId ? { conversation_id: chat.conversationId } : {}),
         },
         {
           onMeta: (ev) => {
+            chat.setConversationId(ev.conversation_id)
             chat.setSourceChunks(ev.source_chunks)
             chat.patchAssistantMessage(assistantId, {
               citations: ev.citations,
@@ -52,9 +54,13 @@ export function useSendMessage() {
               streaming: false,
               content: buffer,
             })
+            void chat.fetchConversationThreads(repoId)
           },
-          onError: (message) => {
+          onError: (message, conversationIdFromServer) => {
             finished = true
+            if (conversationIdFromServer) {
+              chat.setConversationId(conversationIdFromServer)
+            }
             chat.lastError = message
             chat.patchAssistantMessage(assistantId, {
               streaming: false,

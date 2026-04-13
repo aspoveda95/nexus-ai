@@ -298,16 +298,46 @@ def retrieve_context_documents(
 
 
 def format_context_block(documents: Sequence[Document]) -> str:
-    """Serializa el contexto recuperado exigiendo trazabilidad por metadata."""
-    blocks: List[str] = []
-    for index, doc in enumerate(documents, start=1):
+    """Serializa el contexto agrupando trozos del mismo archivo (menos ruido para el LLM).
+
+    Los encabezados evitan el patrón ``[n] archivo=...`` para que el modelo no lo copie
+    como si fuera la respuesta al usuario.
+    """
+    ordered_keys: list[tuple[str, str]] = []
+    chunks_by_key: dict[tuple[str, str], list[str]] = {}
+    lang_by_key: dict[tuple[str, str], str] = {}
+    max_chars_per_file: int = 12000
+
+    for doc in documents:
         source: str = str(doc.metadata.get("source", "desconocido"))
         repo: str = str(doc.metadata.get("repository_id", ""))
-        lang: str = str(doc.metadata.get("language", ""))
-        header: str = f"[{index}] archivo={source}"
+        key = (repo, source)
+        if key not in chunks_by_key:
+            ordered_keys.append(key)
+            chunks_by_key[key] = []
+            lang_by_key[key] = str(doc.metadata.get("language", ""))
+        text: str = doc.page_content.strip()
+        if text:
+            chunks_by_key[key].append(text)
+
+    blocks: List[str] = []
+    for index, key in enumerate(ordered_keys, start=1):
+        parts: list[str] = chunks_by_key[key]
+        if len(parts) > 1:
+            combined: str = "\n\n[… mismo archivo, otro fragmento …]\n\n".join(parts)
+        else:
+            combined = parts[0] if parts else ""
+        if len(combined) > max_chars_per_file:
+            combined = f"{combined[:max_chars_per_file]}\n…"
+        repo, source = key
+        header_lines: list[str] = [
+            f"Documento {index}",
+            f"Ruta relativa: {source}",
+        ]
         if repo:
-            header += f" | repositorio={repo}"
+            header_lines.append(f"Metadato repository_id: {repo}")
+        lang: str = lang_by_key.get(key, "")
         if lang:
-            header += f" | lenguaje={lang}"
-        blocks.append(f"{header}\n{doc.page_content.strip()}")
-    return "\n\n---\n\n".join(blocks)
+            header_lines.append(f"Lenguaje detectado: {lang}")
+        blocks.append("\n".join(header_lines) + "\n\n" + combined)
+    return "\n\n========\n\n".join(blocks)

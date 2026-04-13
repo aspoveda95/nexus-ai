@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RefreshCw, Send, Settings } from 'lucide-vue-next'
+import { MessageSquarePlus, RefreshCw, Send, Settings } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 
 import ChatMessage from '@/components/chat/ChatMessage.vue'
@@ -69,6 +69,16 @@ function onSelectCitation(path: string) {
             {{ repos.activeId ? `ID: ${repos.activeId}` : 'Selecciona un repositorio' }}
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-8 w-8 shrink-0"
+          title="Nueva conversación"
+          :disabled="!repos.activeId || chat.isSending"
+          @click="chat.clearConversation()"
+        >
+          <MessageSquarePlus class="h-4 w-4 text-zinc-400" />
+        </Button>
         <Button variant="ghost" size="icon" class="h-8 w-8 shrink-0" title="Ajustes (próximamente)">
           <Settings class="h-4 w-4 text-zinc-400" />
         </Button>

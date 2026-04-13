@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { getIngestBase } from '@/config'
+import { useChatStore } from '@/stores/chat'
 import type { IngestRequestBody, IngestResponseBody } from '@/types/api'
 
 export type RepoStatus = 'idle' | 'ready' | 'ingesting' | 'error'
@@ -33,7 +34,9 @@ export const useRepositoriesStore = defineStore('repositories', () => {
   })
 
   function setActive(id: string | null) {
+    if (activeId.value === id) return
     activeId.value = id
+    useChatStore().clearConversation()
   }
 
   function addRepository(payload: { id: string; label: string; rootPath: string }) {
@@ -45,7 +48,7 @@ export const useRepositoriesStore = defineStore('repositories', () => {
       rootPath: payload.rootPath,
       status: 'idle',
     })
-    activeId.value = payload.id
+    setActive(payload.id)
     return true
   }
 

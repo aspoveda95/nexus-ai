@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Sequence
+from typing import Any, Dict, Iterator, List, Literal, Sequence, TypedDict
 
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 
@@ -26,8 +27,14 @@ SYSTEM_PROMPT: str = (
     "en el bloque de contexto recuperado (RAG) que recibes. "
     "No inventes estructura de repositorio, no supongas README, tests, src ni dependencias "
     "si no salen en ese contexto. "
-    "Cita cada afirmación sobre código usando la metadata del contexto entre corchetes "
-    "(por ejemplo: [archivo: services/auth.py]). "
+    "Redacta siempre en prosa natural para el usuario. No copies los encabezados del contexto "
+    "(líneas «Documento N», «Ruta relativa:», «Metadato repository_id:», «Lenguaje detectado:») "
+    "ni inventes listas numeradas al estilo «[1] archivo=… | repositorio=…». "
+    "Si la pregunta es si existe un archivo (p. ej. README.md), empieza con Sí o No y "
+    "añade una frase breve con la ruta relativa; no repitas el mismo archivo tres veces. "
+    "El usuario ya eligió el repositorio en la aplicación: no hace falta insistir en el "
+    "repository_id salvo que lo pidan explícitamente. "
+    "Cuando cites código o archivos, usa solo el formato [archivo: ruta/relativa]. "
     "Si el contexto está vacío, es insuficiente o no responde a la pregunta, dilo sin rodeos: "
     "explica que no hay datos recuperados o que hace falta indexar o reformular la pregunta; "
     "no rellenes con plantillas genéricas de proyectos. "
@@ -37,8 +44,109 @@ SYSTEM_PROMPT: str = (
     "No asumas frameworks (p. ej. Flutter), plataformas ni dependencias que no aparezcan en el contexto. "
     "Si el fragmento está truncado o no muestra el archivo completo, dilo y lista únicamente lo que sí se ve. "
     "Si el contexto recuperado contiene código o rutas relevantes para la pregunta, úsalo; "
-    "no digas que el RAG no tiene datos si el texto del contexto sí muestra ese archivo o símbolos."
+    "no digas que el RAG no tiene datos si el texto del contexto sí muestra ese archivo o símbolos. "
+    "Si recibes mensajes previos de la misma conversación, úsalos para interpretar preguntas "
+    "breves o ambiguas («qué dice», «ese archivo», «y eso») como continuación del tema anterior; "
+    "responde sobre ese tema usando el RAG de este turno, sin pedir que reformulen sin necesidad. "
+    "Si el usuario solo agradece, cierra cordialmente o confirma sin pedir datos técnicos nuevos "
+    "(p. ej. «gracias», «entendido», «ok»), responde en una frase breve; no vuelvas a resumir "
+    "archivos, el README ni el historial salvo que pida explícitamente más detalle."
 )
+
+
+class ChatHistoryTurn(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+def _normalize_history(
+    history: Sequence[dict[str, Any]] | None,
+    *,
+    max_messages: int = 24,
+    max_chars_per_message: int = 8000,
+) -> list[ChatHistoryTurn]:
+    if not history:
+        return []
+    out: list[ChatHistoryTurn] = []
+    for item in list(history)[-max_messages:]:
+        role_raw = item.get("role")
+        content_raw = item.get("content")
+        if role_raw not in ("user", "assistant") or not isinstance(content_raw, str):
+            continue
+        content = content_raw.strip()
+        if not content:
+            continue
+        if len(content) > max_chars_per_message:
+            content = f"{content[:max_chars_per_message]}\n…"
+        typed_turn: ChatHistoryTurn = {
+            "role": role_raw,
+            "content": content,
+        }
+        out.append(typed_turn)
+    return out
+
+
+def _retrieval_query(*, user_message: str, history: Sequence[ChatHistoryTurn]) -> str:
+    """Amplía la consulta semántica con turnos recientes (p. ej. «qué dice?» → README)."""
+    if not history:
+        return user_message.strip()
+    parts: list[str] = []
+    for turn in history[-8:]:
+        label = "Usuario" if turn["role"] == "user" else "Asistente"
+        parts.append(f"{label}: {turn['content']}")
+    parts.append(f"Pregunta actual: {user_message.strip()}")
+    text = "\n".join(parts)
+    if len(text) > 14000:
+        text = text[-14000:]
+    return text
+
+
+_CLOSURE_FULLMATCH: re.Pattern[str] = re.compile(
+    r"^("
+    r"(entiendo|entendido)(\s+gracias)?"
+    r"|gracias(\s+entiendo)?"
+    r"|(muchas\s+|mil\s+)?gracias(\s+por\s+todo)?"
+    r"|(ok|vale|perfecto|listo|genial|excelente|correcto|claro)(\s+gracias)?"
+    r"|de\s+nada"
+    r"|thank\s+you|thanks|thx"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _is_conversational_closure(user_message: str) -> bool:
+    """Agradecimientos / cierre sin pregunta técnica: evita RAG que reinyecta el mismo README."""
+    raw = user_message.strip()
+    if not raw or len(raw) > 120:
+        return False
+    if "?" in raw or "`" in raw:
+        return False
+    if re.search(
+        r"\b[\w./-]+\.(?:md|mdx|py|pyi|ts|tsx|vue|js|mjs|cjs|json|yaml|yml|go|rs|java)\b",
+        raw,
+        re.IGNORECASE,
+    ):
+        return False
+    t = raw.lower()
+    t = re.sub(r"^[¡¿]+", "", t)
+    t = re.sub(r"[\.,!;:]+", " ", t)
+    t = " ".join(t.split())
+    if not t:
+        return False
+    return bool(_CLOSURE_FULLMATCH.match(t))
+
+
+def _context_block_for_turn(
+    *,
+    user_message: str,
+    documents: List[Document],
+) -> str:
+    if not documents and _is_conversational_closure(user_message):
+        return (
+            "(Este turno no usa búsqueda en el código: el mensaje es solo conversación breve o cierre. "
+            "Responde de forma cordial en una o dos frases; no resumas el repositorio ni el README.)"
+        )
+    return format_context_block(documents)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +158,14 @@ class ChatOrchestrationResult:
 
 def _build_messages(
     *,
+    repository_id: str,
     user_message: str,
     context_block: str,
-) -> List[SystemMessage | HumanMessage]:
+    history: Sequence[ChatHistoryTurn],
+) -> List[BaseMessage]:
     human_payload: str = (
+        f"Repositorio activo en esta conversación (id): {repository_id}\n"
+        "Las rutas del contexto son relativas a la raíz de ese repositorio indexado.\n\n"
         "Contexto recuperado (RAG):\n"
         f"{context_block}\n\n"
         "Prioridad: el texto anterior es código real de este repositorio. Si entra en conflicto "
@@ -62,10 +174,14 @@ def _build_messages(
         "por plantillas genéricas.\n\n"
         f"Pregunta del usuario:\n{user_message.strip()}"
     )
-    return [
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=human_payload),
-    ]
+    out: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
+    for turn in history:
+        if turn["role"] == "user":
+            out.append(HumanMessage(content=turn["content"]))
+        else:
+            out.append(AIMessage(content=turn["content"]))
+    out.append(HumanMessage(content=human_payload))
+    return out
 
 
 def _extract_citations(documents: Sequence[Document]) -> List[dict[str, str]]:
@@ -130,18 +246,29 @@ def run_hybrid_chat(
     user_message: str,
     mode: ModeLiteral,
     top_k: int,
+    history: Sequence[dict[str, Any]] | None = None,
     chroma_settings: ChromaGatewaySettings | None = None,
 ) -> ChatOrchestrationResult:
     """Ejecuta recuperación + generación con el proveedor solicitado."""
     settings: ChromaGatewaySettings = chroma_settings or load_chroma_settings_from_env()
-    documents: List[Document] = retrieve_context_documents(
+    hist = _normalize_history(history)
+    if _is_conversational_closure(user_message):
+        documents = []
+    else:
+        rag_query: str = _retrieval_query(user_message=user_message, history=hist)
+        documents = retrieve_context_documents(
+            repository_id=repository_id,
+            user_query=rag_query,
+            top_k=top_k,
+            settings=settings,
+        )
+    context_block: str = _context_block_for_turn(user_message=user_message, documents=documents)
+    messages = _build_messages(
         repository_id=repository_id,
-        user_query=user_message,
-        top_k=top_k,
-        settings=settings,
+        user_message=user_message,
+        context_block=context_block,
+        history=hist,
     )
-    context_block: str = format_context_block(documents)
-    messages = _build_messages(user_message=user_message, context_block=context_block)
 
     llm = _build_llm(mode)
 
@@ -162,17 +289,23 @@ def iter_hybrid_chat_stream(
     user_message: str,
     mode: ModeLiteral,
     top_k: int,
+    history: Sequence[dict[str, Any]] | None = None,
     chroma_settings: ChromaGatewaySettings | None = None,
 ) -> Iterator[Dict[str, Any]]:
     """Eventos para SSE: meta (citas + chunks), tokens parciales, done."""
     settings: ChromaGatewaySettings = chroma_settings or load_chroma_settings_from_env()
-    documents: List[Document] = retrieve_context_documents(
-        repository_id=repository_id,
-        user_query=user_message,
-        top_k=top_k,
-        settings=settings,
-    )
-    context_block: str = format_context_block(documents)
+    hist = _normalize_history(history)
+    if _is_conversational_closure(user_message):
+        documents = []
+    else:
+        rag_query = _retrieval_query(user_message=user_message, history=hist)
+        documents = retrieve_context_documents(
+            repository_id=repository_id,
+            user_query=rag_query,
+            top_k=top_k,
+            settings=settings,
+        )
+    context_block: str = _context_block_for_turn(user_message=user_message, documents=documents)
     citations = _extract_citations(documents)
     source_chunks = _documents_to_source_chunks(documents)
     yield {
@@ -183,7 +316,12 @@ def iter_hybrid_chat_stream(
         "mode": mode,
     }
 
-    messages = _build_messages(user_message=user_message, context_block=context_block)
+    messages = _build_messages(
+        repository_id=repository_id,
+        user_message=user_message,
+        context_block=context_block,
+        history=hist,
+    )
     llm = _build_llm(mode)
     for chunk in llm.stream(messages):
         piece: str = str(getattr(chunk, "content", "") or "")
