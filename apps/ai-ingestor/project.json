@@ -1,0 +1,16 @@
+{
+  "name": "ai-ingestor",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ai-ingestor",
+  "targets": {
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/ai-ingestor",
+        "command": "uvicorn nexus_ingestor.main:app --host 0.0.0.0 --port 8100 --reload"
+      }
+    }
+  },
+  "tags": ["scope:ai", "type:app"]
+}
